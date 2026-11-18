@@ -5,6 +5,15 @@
 #define CL_SILENCE_DEPRECATION
 #include <OpenCL/opencl.h>
 #else
+// BitCrack uses the OpenCL 1.2 host API (clCreateCommandQueue). Newer
+// Khronos headers (e.g. CUDA 13.x) mark it deprecated, which /sdl turns
+// into error C4996 on MSVC.
+#ifndef CL_TARGET_OPENCL_VERSION
+#define CL_TARGET_OPENCL_VERSION 120
+#endif
+#ifndef CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#endif
 #include <CL/cl.h>
 #endif
 

@@ -86,7 +86,9 @@ int main(int argc, char **argv)
             numErrors += runTest(devices[i].id);
         }
         catch(cl::CLException ex) {
+            // A kernel build/launch failure is a test failure, not a pass.
             std::cout << "Error " << ex.msg << std::endl;
+            numErrors++;
         }
     }
 
@@ -99,5 +101,5 @@ int main(int argc, char **argv)
         std::cout << "FAIL" << std::endl;
     }
 
-    return 0;
+    return numErrors ? 1 : 0;
 }
