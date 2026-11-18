@@ -1,8 +1,10 @@
 param(
     [string]$Bin,
-    [string]$WorkDir
+    [string]$WorkDir,
+    [switch]$PortableOnly
 )
 $ErrorActionPreference = 'Stop'
+$passed = 0
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $Bin) { $Bin = Join-Path $repo 'x64\Release' }
 if (-not $WorkDir) { $WorkDir = Join-Path $repo ('artifacts\script-regressions-' + [guid]::NewGuid().ToString('N')) }
@@ -12,41 +14,44 @@ $benchmark = Join-Path $repo 'scripts\benchmark.ps1'
 
 function Assert-Case([bool]$Pass, [string]$Name, [string]$Detail) {
     if (-not $Pass) { throw "$Name failed. $Detail" }
+    $script:passed++
     Write-Host "[PASS] $Name"
 }
 
-$spaced = Join-Path $WorkDir 'vector outputs with spaces'
-$output = & $synthetic -Bin $Bin -WorkDir $spaced -Stages vectors, cl-vectors 6>&1 | Out-String
-$code = $LASTEXITCODE
-Assert-Case ($code -eq 0 -and $output -match '4/4 checks passed' -and
-    (Test-Path -LiteralPath (Join-Path $spaced 'vectors.txt')) -and
-    (Test-Path -LiteralPath (Join-Path $spaced 'clvectors.txt'))) 'CUDA and OpenCL output paths with spaces' $output
-
-& {
-    # Pin only the random-key generator. Keep real address derivation and GPU execution.
-    $python = (Get-Command python).Source
-    $fixedKeyCalls = [System.Collections.Generic.List[string]]::new()
-    function Invoke-FixturePython {
-        if ($args[1] -ceq '-c' -and $args[2] -match 'secrets\.randbits\(35\)') {
-            $fixedKeyCalls.Add('800000001')
-            '800000001'
-        } else {
-            & $python @args
-        }
-    }
-    function Get-Command {
-        [CmdletBinding()]
-        param([string]$Name)
-        if ($Name -eq 'python') { [pscustomobject]@{ Source = 'Invoke-FixturePython' } }
-        else { Microsoft.PowerShell.Core\Get-Command @PSBoundParameters }
-    }
-
-    $puzzle = Join-Path $WorkDir 'first batch puzzle'
-    $output = & $synthetic -Bin $Bin -WorkDir $puzzle -Stages puzzle -GpuArgs @('-b', '1', '-t', '32', '-p', '1') 6>&1 | Out-String
+if (-not $PortableOnly) {
+    $spaced = Join-Path $WorkDir 'vector outputs with spaces'
+    $output = & $synthetic -Bin $Bin -WorkDir $spaced -Stages vectors, cl-vectors 6>&1 | Out-String
     $code = $LASTEXITCODE
-    $log = [string](Get-Content -LiteralPath (Join-Path $puzzle 'puzzle.log') -Raw)
-    Assert-Case ($code -eq 0 -and $fixedKeyCalls.Count -eq 1 -and $output -match '3/3 checks passed' -and
-        $output -match 'key=800000001' -and $log -notmatch 'MKey/s') 'Puzzle completes before its first progress update' $output
+    Assert-Case ($code -eq 0 -and $output -match '4/4 checks passed' -and
+        (Test-Path -LiteralPath (Join-Path $spaced 'vectors.txt')) -and
+        (Test-Path -LiteralPath (Join-Path $spaced 'clvectors.txt'))) 'CUDA and OpenCL output paths with spaces' $output
+
+    & {
+        # Pin only the random-key generator. Keep real address derivation and GPU execution.
+        $python = (Get-Command python).Source
+        $fixedKeyCalls = [System.Collections.Generic.List[string]]::new()
+        function Invoke-FixturePython {
+            if ($args[1] -ceq '-c' -and $args[2] -match 'secrets\.randbits\(35\)') {
+                $fixedKeyCalls.Add('800000001')
+                '800000001'
+            } else {
+                & $python @args
+            }
+        }
+        function Get-Command {
+            [CmdletBinding()]
+            param([string]$Name)
+            if ($Name -eq 'python') { [pscustomobject]@{ Source = 'Invoke-FixturePython' } }
+            else { Microsoft.PowerShell.Core\Get-Command @PSBoundParameters }
+        }
+
+        $puzzle = Join-Path $WorkDir 'first batch puzzle'
+        $output = & $synthetic -Bin $Bin -WorkDir $puzzle -Stages puzzle -GpuArgs @('-b', '1', '-t', '32', '-p', '1') 6>&1 | Out-String
+        $code = $LASTEXITCODE
+        $log = [string](Get-Content -LiteralPath (Join-Path $puzzle 'puzzle.log') -Raw)
+        Assert-Case ($code -eq 0 -and $fixedKeyCalls.Count -eq 1 -and $output -match '3/3 checks passed' -and
+            $output -match 'key=800000001' -and $log -notmatch 'MKey/s') 'Puzzle completes before its first progress update' $output
+    }
 }
 
 $missing = Join-Path $WorkDir 'missing OpenCL'
@@ -106,4 +111,7 @@ try {
     $env:BITCRACK_TEST_TELEMETRY_READY = $oldReady
 }
 
-Write-Host "10 script regression checks passed. Logs in $WorkDir"
+$expected = if ($PortableOnly) { 8 } else { 10 }
+if ($passed -ne $expected) { throw "Expected $expected regression checks, but $passed passed." }
+Write-Host "$passed/$expected script regression checks passed. Logs in $WorkDir"
+exit 0

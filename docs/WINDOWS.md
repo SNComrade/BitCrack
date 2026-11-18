@@ -50,6 +50,7 @@ Other GPUs: `.\scripts\build-windows.ps1 -CudaArch compute_75,sm_75` (Turing),
 .\x64\Release\CLUnitTests.exe       # OpenCL add/mul/inverse mod p; exit 0 = PASS
 .\tests\synthetic\run-synthetic.ps1 # end-to-end GPU checks, ~3 min, exit 0 = all pass
 .\tests\run-script-regressions.ps1  # focused PowerShell checks using real GPU vectors and benchmark fixtures
+.\tests\run-script-regressions.ps1 -PortableOnly # eight checks on Windows without a GPU build
 ```
 
 `run-synthetic.ps1` stages (all verified on the hardware above):
@@ -67,6 +68,9 @@ Other GPUs: `.\scripts\build-windows.ps1 -CudaArch compute_75,sm_75` (Turing),
 The default suite runs 13 checks and requires the CUDA and OpenCL binaries.
 Use `-NoOpenCL` to skip OpenCL explicitly. The script regression suite uses the
 Windows .NET Framework C# compiler to build its stand-in benchmark processes.
+The Windows fixtures workflow runs the portable checks on GitHub-hosted
+Windows in PowerShell 7 and Windows PowerShell 5.1. The full local regression
+suite adds two checks using the CUDA and OpenCL binaries.
 
 ## Benchmark
 
@@ -169,8 +173,8 @@ not tested here), Win32 configurations (unused, still point at CUDA v9.2).
 2. Exercise checkpoint interruption during writes, invalid checkpoint files,
    and resume from the last completed batch. Verify that resumed runs neither
    omit nor double-count completed work.
-3. Separate the benchmark fixtures for Windows CI and run the GPU suites on
-   a dedicated GPU runner. Require evidence that each selected test executed.
+3. Add the GPU suites on a dedicated runner. Record which real GPU tests
+   executed alongside the portable Windows CI checks.
 4. Compare repeated benchmark runs with the commit, driver, GPU UUID, launch
    settings, duration, and power mode recorded alongside the raw samples.
 
