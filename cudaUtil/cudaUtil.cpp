@@ -55,6 +55,14 @@ cuda::CudaDeviceInfo cuda::getDeviceInfo(int device)
 	case 7:
 		cores = 64;
 		break;
+    case 8:
+        // Ampere: GA100 (8.0) has 64 FP32 cores/SM; GA10x (8.6, 8.7) and
+        // Ada (8.9) have 128.
+        cores = (devInfo.minor == 0) ? 64 : 128;
+        break;
+    case 9:
+        cores = 128;  // Hopper
+        break;
     default:
         cores = 8;
         break;

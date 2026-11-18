@@ -15,7 +15,12 @@ bool addTest()
     unsigned int z[8] = { 0xf82abda4, 0x5bfe3aed, 0x9becfe35, 0x8eb9b710, 0x7288814a, 0x62ec9d8a, 0x899ca54a, 0x7d67312a };
     unsigned int k[8];
 
-    addModP(x, y, k);
+    // clMath now exposes the uint256_t API (addModP256k); the old
+    // array-based addModP no longer exists.
+    uint256_t a, b, c;
+    for(int i = 0; i < 8; i++) { a.v[i] = x[i]; b.v[i] = y[i]; }
+    c = addModP256k(a, b);
+    for(int i = 0; i < 8; i++) { k[i] = c.v[i]; }
 
     return equal(z, k);
 }
@@ -38,11 +43,10 @@ bool inverseTest()
     unsigned int k[8];
     unsigned int z[8] = { 0x22a595b4, 0x5a57167e, 0x1b9426be, 0x2c9b13e1, 0x8ca6f21c, 0x1765b9a9, 0xb378bbb3, 0x9a7f38e5 };
 
-    for(int i = 0; i < 8; i++) {
-        k[i] = x[i];
-    }
-
-    invModP(k);
+    uint256_t a;
+    for(int i = 0; i < 8; i++) { a.v[i] = x[i]; }
+    a = invModP256k(a);
+    for(int i = 0; i < 8; i++) { k[i] = a.v[i]; }
 
     return equal(z, k);
 }
