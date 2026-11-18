@@ -49,6 +49,7 @@ Other GPUs: `.\scripts\build-windows.ps1 -CudaArch compute_75,sm_75` (Turing),
 .\x64\Release\cudaInfo.exe          # device, CC 8.6, 3840 cores
 .\x64\Release\CLUnitTests.exe       # OpenCL add/mul/inverse mod p; exit 0 = PASS
 .\tests\synthetic\run-synthetic.ps1 # end-to-end GPU checks, ~3 min, exit 0 = all pass
+.\tests\run-script-regressions.ps1  # focused PowerShell checks using real GPU vectors and benchmark fixtures
 ```
 
 `run-synthetic.ps1` stages (all verified on the hardware above):
@@ -58,18 +59,30 @@ Other GPUs: `.\scripts\build-windows.ps1 -CudaArch compute_75,sm_75` (Turing),
 | btcaddr self-test | Independent pure-Python key→address derivation matches published vectors |
 | vectors | cuBitCrack recovers `k=1` (compressed + uncompressed) and solved puzzle #20 (`0xd2c55`); each hit is re-derived by Python |
 | cl-vectors | Same `k=1` check through clBitCrack (OpenCL) |
-| puzzle | A random key in a 2^35-wide range is recovered; run stops with "No targets remaining"; progress lines printed |
+| puzzle | A random key in a 2^35-wide range is recovered; run stops with "No targets remaining" |
 | bounds | Keys at START and END are found; START-1 is not |
 | exhaust | A target outside the range is not reported; run ends "Reached end of keyspace" with no result file |
 | checkpoint | Run 1 killed after the first checkpoint; run 2 with `--continue` logs the saved `next` key as its start and finds a key placed after it |
 
-Observed run (2026-11-18): 14/14 checks passed.
+The default suite runs 13 checks and requires the CUDA and OpenCL binaries.
+Use `-NoOpenCL` to skip OpenCL explicitly. The script regression suite uses the
+Windows .NET Framework C# compiler to build its stand-in benchmark processes.
 
 ## Benchmark
 
 ```powershell
 .\scripts\benchmark.ps1 -IncludeOpenCL      # ~4 min; writes %TEMP%\bitcrack-bench\benchmark.md
 ```
+
+Each row records the child exit code and whether the benchmark stopped it at
+the time limit. A successful row requires a positive throughput sample. An
+unexpected nonzero exit or missing throughput produces a `FAIL` row and makes
+the script exit 1 after writing the report. The path printed after the table
+contains numbered stdout, stderr, and telemetry logs for the invocation.
+
+Telemetry uses the NVIDIA UUID when the selected BitCrack device name has a
+unique NVIDIA match. When the name is ambiguous or has no match, the row
+reports throughput with telemetry unavailable.
 
 Measured 2026-11-18, 40 s per configuration, laptop on AC power, compressed
 keys, one target. VRAM is whole-GPU usage reported by nvidia-smi, including
@@ -148,6 +161,18 @@ not tested here), Win32 configurations (unused, still point at CUDA v9.2).
   architectures without rebuilding with `-CudaArch`.
 - Laptop thermals: sustained ~140 W at 66–68 °C on AC power; on battery or in
   a quiet/eco power mode the rate drops.
+
+## Follow-up reliability work
+
+1. Define the inclusive interval contract with synthetic CUDA and OpenCL
+   coverage for END+1, partial final batches, and adjacent shares.
+2. Exercise checkpoint interruption during writes, invalid checkpoint files,
+   and resume from the last completed batch. Verify that resumed runs neither
+   omit nor double-count completed work.
+3. Separate the benchmark fixtures for Windows CI and run the GPU suites on
+   a dedicated GPU runner. Require evidence that each selected test executed.
+4. Compare repeated benchmark runs with the commit, driver, GPU UUID, launch
+   settings, duration, and power mode recorded alongside the raw samples.
 
 ## Troubleshooting
 

@@ -39,7 +39,10 @@ $cu = Join-Path $Bin 'cuBitCrack.exe'
 $cl = Join-Path $Bin 'clBitCrack.exe'
 $py = (Get-Command python -ErrorAction Stop).Source
 $addrPy = Join-Path $PSScriptRoot 'btcaddr.py'
-if (-not (Test-Path $cu)) { throw "cuBitCrack.exe not found in $Bin - run scripts\build-windows.ps1 first." }
+$cudaStages = @($Stages | Where-Object { $_ -in 'vectors', 'puzzle', 'bounds', 'exhaust', 'checkpoint' })
+if ($cudaStages.Count -and -not (Test-Path -LiteralPath $cu -PathType Leaf)) {
+    throw "cuBitCrack.exe not found in $Bin - run scripts\build-windows.ps1 first."
+}
 New-Item -ItemType Directory -Force $WorkDir | Out-Null
 $results = [System.Collections.Generic.List[object]]::new()
 
@@ -58,7 +61,12 @@ function Hex([System.Numerics.BigInteger]$v) { $v.ToString('x').TrimStart('0') }
 function Invoke-BitCrack([string]$Exe, [string[]]$Arguments, [string]$Name, [int]$TimeoutSec = 600) {
     $out = Join-Path $WorkDir "$Name.log"
     $err = Join-Path $WorkDir "$Name.err"
-    $p = Start-Process -FilePath $Exe -ArgumentList $Arguments -NoNewWindow -PassThru `
+    # Start-Process joins ArgumentList into a Windows command line. Escape
+    # backslashes before embedded quotes and at the end of each quoted argument.
+    $commandLine = ($Arguments | ForEach-Object {
+        '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+    }) -join ' '
+    $p = Start-Process -FilePath $Exe -ArgumentList $commandLine -NoNewWindow -PassThru `
         -RedirectStandardOutput $out -RedirectStandardError $err
     $handle = $p.Handle  # keep the handle so ExitCode is available
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -104,12 +112,16 @@ if ('vectors' -in $Stages) {
     Add-Result 'vectors puzzle20' ((Test-Found $found 0xD2C55 $a20) -and $r.Exit -eq 0) "exit=$($r.Exit) key=$(if ($found) { Hex $found[0].Key })"
 }
 
-if ('cl-vectors' -in $Stages -and -not $NoOpenCL -and (Test-Path $cl)) {
-    $f = Join-Path $WorkDir 'clvectors.txt'; Remove-Item $f -ErrorAction SilentlyContinue
-    $a1c = '1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH'; $a1u = '1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm'
-    $r = Invoke-BitCrack $cl @('--compression', 'both', '--keyspace', '1:+FFFFFF', '-o', $f, $a1c, $a1u) 'cl-vectors'
-    $found = Read-Found $f
-    Add-Result 'cl-vectors key1' ((Test-Found $found 1 $a1c) -and (Test-Found $found 1 $a1u) -and $r.Exit -eq 0) "exit=$($r.Exit) found=$($found.Count)/2"
+if ('cl-vectors' -in $Stages -and -not $NoOpenCL) {
+    if (-not (Test-Path -LiteralPath $cl -PathType Leaf)) {
+        Add-Result 'cl-vectors key1' $false "clBitCrack.exe not found in $Bin - run scripts\build-windows.ps1 first."
+    } else {
+        $f = Join-Path $WorkDir 'clvectors.txt'; Remove-Item $f -ErrorAction SilentlyContinue
+        $a1c = '1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH'; $a1u = '1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm'
+        $r = Invoke-BitCrack $cl @('--compression', 'both', '--keyspace', '1:+FFFFFF', '-o', $f, $a1c, $a1u) 'cl-vectors'
+        $found = Read-Found $f
+        Add-Result 'cl-vectors key1' ((Test-Found $found 1 $a1c) -and (Test-Found $found 1 $a1u) -and $r.Exit -eq 0) "exit=$($r.Exit) found=$($found.Count)/2"
+    }
 }
 
 if ('puzzle' -in $Stages) {
@@ -121,10 +133,8 @@ if ('puzzle' -in $Stages) {
     $r = Invoke-BitCrack $cu ($GpuArgs + @('--keyspace', "$(Hex $lo):$(Hex $hi)", '-o', $f, $addr)) 'puzzle'
     $found = Read-Found $f
     $stoppedEarly = $r.Log -match 'No targets remaining'
-    $progress = ([regex]::Matches($r.Log, 'MKey/s')).Count -gt 0
     Add-Result 'puzzle recovery' ((Test-Found $found $key $addr) -and $r.Exit -eq 0) "key=$(Hex $key) found=$(if ($found) { Hex $found[0].Key }) in $($r.Seconds)s"
     Add-Result 'puzzle stop-on-found' $stoppedEarly "log contains 'No targets remaining'"
-    Add-Result 'puzzle progress' $progress 'progress lines with MKey/s were printed'
 }
 
 if ('bounds' -in $Stages) {
